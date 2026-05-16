@@ -37,7 +37,7 @@ onMounted(async () => {
   nextTick(autoResize)
 })
 
-const canSend = computed(() => content.value.trim().length > 0 && !props.disabled)
+const canSend = computed(() => (content.value.trim().length > 0 || files.value.length > 0) && !props.disabled)
 
 function autoResize() {
   const el = textareaRef.value
@@ -55,17 +55,25 @@ function handleKeydown(e: KeyboardEvent) {
 
 function handleSend() {
   if (!canSend.value) return
-  const attachments = files.value
-    .filter(f => f.base64)
-    .map(f => {
-      let entry = `data:${f.type || 'application/octet-stream'};base64,${f.base64}`
-      if (f.filePath) {
-        entry += `\n[path:${f.filePath}]`
-      }
-      return entry
-    })
+  const imageFiles = files.value.filter(f => f.base64 && f.type.startsWith('image/'))
+  const textFiles = files.value.filter(f => f.base64 && !f.type.startsWith('image/'))
+  const pathOnlyFiles = files.value.filter(f => !f.base64 && f.filePath)
+
+  const attachments = imageFiles.map(f => `data:${f.type};base64,${f.base64}`)
+
+  let text = content.value.trim()
+  for (const f of textFiles) {
+    const bytes = Uint8Array.from(atob(f.base64!), c => c.charCodeAt(0))
+    const decoded = new TextDecoder('utf-8').decode(bytes)
+    const header = f.filePath ? `[${f.filePath}]` : `[${f.name}]`
+    text += `\n\n${header}\n${decoded}`
+  }
+  for (const f of pathOnlyFiles) {
+    text += `\n\n[file_path: ${f.filePath}]`
+  }
+
   emit('send', {
-    text: content.value.trim(),
+    text,
     attachments,
     modelConfigId: modelConfigId.value,
   })

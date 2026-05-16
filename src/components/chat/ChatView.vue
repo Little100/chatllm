@@ -19,6 +19,7 @@ initStreamStoreListener()
 const streamStore = useStreamStore()
 
 const props = defineProps<{ sessionId: string | null }>()
+const emit = defineEmits<{ sessionCreated: [id: string] }>()
 
 const messages = ref<Message[]>([])
 const versionMap = ref<Record<string, { total: number; current: number }>>({})
@@ -237,12 +238,26 @@ onUnmounted(() => {
 
 async function handleSend(payload: SendPayload) {
   const { text, attachments, modelConfigId } = payload
-  if (!props.sessionId || !text.trim()) return
+  if (!text.trim()) return
   currentModelConfigId.value = modelConfigId
   error.value = null
+
+  let sid = props.sessionId
+  if (!sid) {
+    try {
+      const session = await invoke<{ id: string }>('create_session', {
+        title: text.trim().slice(0, 30) || t.value('sidebar.newChat'),
+        modelConfigId: null,
+      })
+      sid = session.id
+      emit('sessionCreated', sid)
+      await nextTick()
+    } catch (_) { return }
+  }
+
   messages.value.push({
     id: crypto.randomUUID(),
-    session_id: props.sessionId!,
+    session_id: sid,
     role: 'user',
     content: text.trim(),
     version: 1,
@@ -254,7 +269,6 @@ async function handleSend(payload: SendPayload) {
     attachments: attachments.length > 0 ? attachments : undefined,
   })
   await nextTick()
-  const sid = props.sessionId!
   streamStore.register(sid, 'pending')
   const completed = await startStream(sid, text.trim(), modelConfigId, attachments)
   if (!completed) return
@@ -272,9 +286,9 @@ function handleGlobalDrop(fileList: FileList) {
   chatInputRef.value?.addFiles(fileList)
 }
 
-function handleDropChoice(includePath: boolean) {
+function handleDropChoice(mode: 'content' | 'content_path' | 'path_only') {
   showDropChoice.value = false
-  chatInputRef.value?.addFilesFromPaths(pendingDropPaths.value, includePath)
+  chatInputRef.value?.addFilesFromPaths(pendingDropPaths.value, mode)
   pendingDropPaths.value = []
 }
 </script>
@@ -299,12 +313,16 @@ function handleDropChoice(includePath: boolean) {
         <p class="text-sm font-medium text-foreground">{{ t('dropzone.choiceTitle') }}</p>
         <button
           class="rounded-md border border-border px-4 py-2 text-sm text-foreground hover:bg-muted transition-colors"
-          @click="handleDropChoice(false)"
+          @click="handleDropChoice('content')"
         >{{ t('dropzone.fileOnly') }}</button>
         <button
           class="rounded-md border border-border px-4 py-2 text-sm text-foreground hover:bg-muted transition-colors"
-          @click="handleDropChoice(true)"
+          @click="handleDropChoice('content_path')"
         >{{ t('dropzone.fileWithPath') }}</button>
+        <button
+          class="rounded-md border border-border px-4 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+          @click="handleDropChoice('path_only')"
+        >{{ t('dropzone.pathOnly') }}</button>
       </div>
     </div>
 
@@ -314,6 +332,13 @@ function handleDropChoice(includePath: boolean) {
         <MessageSquarePlus class="h-12 w-12 opacity-30" />
         <p class="text-sm">{{ t('chat.empty') }}</p>
       </div>
+      <ChatInput
+        ref="chatInputRef"
+        :is-streaming="false"
+        :disabled="false"
+        @send="handleSend"
+        @cancel="handleCancel"
+      />
     </template>
 
     <template v-else>

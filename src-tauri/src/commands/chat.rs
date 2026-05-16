@@ -13,6 +13,19 @@ use crate::services::sse_parser::{ParsedEvent, SseParser};
 use crate::services::stream_manager::StreamManager;
 use crate::services::tools::{ToolCall, ToolRegistry};
 
+/// 解码 data URI 中的 base64 文本内容
+fn decode_data_uri_text(data_uri: &str) -> String {
+    let Some(comma_pos) = data_uri.find(',') else {
+        return data_uri.to_string();
+    };
+    let b64 = &data_uri[comma_pos + 1..];
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    match STANDARD.decode(b64) {
+        Ok(bytes) => String::from_utf8_lossy(&bytes).to_string(),
+        Err(_) => data_uri.to_string(),
+    }
+}
+
 /// 工具循环硬超时
 const TOOL_LOOP_TIMEOUT_SECS: u64 = 300;
 /// 节流保存阈值: token 累计数
@@ -705,10 +718,15 @@ pub async fn send_message(
                 let text = last_user.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
                 let mut parts: Vec<Value> = vec![json!({"type": "text", "text": text})];
                 for data_uri in &attachments {
-                    parts.push(json!({
-                        "type": "image_url",
-                        "image_url": {"url": data_uri}
-                    }));
+                    if data_uri.starts_with("data:image/") {
+                        parts.push(json!({
+                            "type": "image_url",
+                            "image_url": {"url": data_uri}
+                        }));
+                    } else {
+                        let decoded = decode_data_uri_text(data_uri);
+                        parts.push(json!({"type": "text", "text": decoded}));
+                    }
                 }
                 last_user["content"] = json!(parts);
             }

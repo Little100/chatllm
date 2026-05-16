@@ -2,7 +2,7 @@
 import { computed, ref, nextTick } from 'vue'
 import MessageContent from './MessageContent.vue'
 import MessageActions from './MessageActions.vue'
-import { User, Bot, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-vue-next'
+import { User, Bot, ChevronLeft, ChevronRight, ChevronDown, FileText, MapPin } from 'lucide-vue-next'
 import type { Message } from '@/types/chat'
 import { useAvatar } from '@/composables/useAvatar'
 import { useI18n } from '@/composables/useI18n'
@@ -37,13 +37,46 @@ const avatarSrc = computed(() => {
 })
 
 const ATTACH_MARKER_RE = /\n\n<!-- user_attachments:(.*?) -->$/s
+const FILE_BLOCK_RE = /\n\n\[([^\]]+)\]\n([\s\S]*?)(?=\n\n\[|$)/g
+const FILE_PATH_RE = /\n\n\[file_path: ([^\]]+)\]/g
+
+interface FileBlock {
+  label: string
+  content: string | null
+}
+
 const parsedAttachments = computed<string[]>(() => {
   if (props.message.attachments?.length) return props.message.attachments
   const match = props.message.content.match(ATTACH_MARKER_RE)
   if (!match) return []
   try { return JSON.parse(match[1]) } catch { return [] }
 })
-const displayContent = computed(() => props.message.content.replace(ATTACH_MARKER_RE, ''))
+const imageAttachments = computed(() => parsedAttachments.value.filter(a => a.startsWith('data:image/')))
+const fileAttachments = computed(() => parsedAttachments.value.filter(a => !a.startsWith('data:image/')))
+
+const fileBlocks = computed<FileBlock[]>(() => {
+  const blocks: FileBlock[] = []
+  const text = props.message.content.replace(ATTACH_MARKER_RE, '')
+  const pathMatches = [...text.matchAll(FILE_PATH_RE)]
+  for (const m of pathMatches) {
+    blocks.push({ label: m[1], content: null })
+  }
+  const blockMatches = [...text.matchAll(FILE_BLOCK_RE)]
+  for (const m of blockMatches) {
+    if (m[1].startsWith('file_path: ')) continue
+    blocks.push({ label: m[1], content: m[2] })
+  }
+  return blocks
+})
+
+const displayContent = computed(() => {
+  let text = props.message.content.replace(ATTACH_MARKER_RE, '')
+  text = text.replace(FILE_PATH_RE, '')
+  text = text.replace(FILE_BLOCK_RE, '')
+  return text.trim()
+})
+
+const expandedFiles = ref<Set<number>>(new Set())
 
 const thinkingExpanded = ref(false)
 const isEditing = ref(false)
@@ -93,6 +126,12 @@ function autoResize(e: Event) {
   const el = e.target as HTMLTextAreaElement
   el.style.height = 'auto'
   el.style.height = el.scrollHeight + 'px'
+}
+
+function extractFileName(dataUri: string): string {
+  const mimeMatch = dataUri.match(/^data:([^;]+);/)
+  const ext = mimeMatch ? mimeMatch[1].split('/').pop() || '' : ''
+  return ext ? `file.${ext}` : 'file'
 }
 </script>
 
@@ -162,13 +201,43 @@ function autoResize(e: Event) {
           </div>
         </div>
         <!-- 附件图片 -->
-        <div v-if="parsedAttachments.length > 0" class="mb-2 flex flex-wrap gap-2">
+        <div v-if="imageAttachments.length > 0" class="mb-2 flex flex-wrap gap-2">
           <img
-            v-for="(src, idx) in parsedAttachments"
+            v-for="(src, idx) in imageAttachments"
             :key="idx"
             :src="src"
             class="max-h-48 max-w-full rounded border border-primary-foreground/20 object-contain"
           />
+        </div>
+        <!-- 非图片附件(旧格式 data URI) -->
+        <div v-if="fileAttachments.length > 0" class="mb-2 flex flex-wrap gap-2">
+          <div
+            v-for="(src, idx) in fileAttachments"
+            :key="idx"
+            class="flex items-center gap-1.5 rounded border border-primary-foreground/20 px-2 py-1"
+          >
+            <FileText class="h-3.5 w-3.5 shrink-0 opacity-70" />
+            <span class="text-xs opacity-80">{{ extractFileName(src) }}</span>
+          </div>
+        </div>
+        <!-- 文件块附件(可折叠) -->
+        <div v-if="fileBlocks.length > 0" class="mb-2 flex flex-col gap-1.5">
+          <div v-for="(block, idx) in fileBlocks" :key="idx">
+            <button
+              class="flex items-center gap-1.5 rounded border border-primary-foreground/20 px-2 py-1 hover:bg-primary-foreground/10 transition-colors"
+              @click="block.content ? (expandedFiles.has(idx) ? expandedFiles.delete(idx) : expandedFiles.add(idx)) : undefined"
+            >
+              <MapPin v-if="!block.content" class="h-3.5 w-3.5 shrink-0 opacity-70" />
+              <FileText v-else class="h-3.5 w-3.5 shrink-0 opacity-70" />
+              <span class="text-xs opacity-80 max-w-[240px] truncate">{{ block.label }}</span>
+              <ChevronDown v-if="block.content && expandedFiles.has(idx)" class="h-3 w-3 opacity-60" />
+              <ChevronRight v-else-if="block.content" class="h-3 w-3 opacity-60" />
+            </button>
+            <div
+              v-if="block.content && expandedFiles.has(idx)"
+              class="mt-1 ml-2 rounded border border-primary-foreground/10 bg-primary-foreground/5 px-3 py-2 text-xs leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto"
+            >{{ block.content }}</div>
+          </div>
         </div>
         <MessageContent :content="displayContent" :is-user="isUser" />
 

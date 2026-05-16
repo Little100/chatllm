@@ -59,7 +59,7 @@ export function useFileUpload() {
     }
   }
 
-  async function addFilesFromPaths(paths: string[], includePath: boolean) {
+  async function addFilesFromPaths(paths: string[], mode: 'content' | 'content_path' | 'path_only') {
     for (const filePath of paths) {
       const name = filePath.split(/[\\/]/).pop() || filePath
       const type = getMimeType(name)
@@ -69,7 +69,11 @@ export function useFileUpload() {
         name,
         type,
         size: 0,
-        filePath: includePath ? filePath : undefined,
+        filePath,
+      }
+      if (mode === 'path_only') {
+        files.value.push(uploadFile)
+        continue
       }
       try {
         const base64: string = await invoke('read_file_base64', { path: filePath })
@@ -81,6 +85,9 @@ export function useFileUpload() {
       } catch (e) {
         console.warn('读取文件失败', filePath, e)
         continue
+      }
+      if (mode === 'content') {
+        uploadFile.filePath = undefined
       }
       files.value.push(uploadFile)
     }

@@ -27,6 +27,7 @@ const activeSessionId = ref<string | null>(null)
 const showSettings = ref(false)
 const activeView = ref<'chat' | 'logs'>('chat')
 const showAdvanced = ref(false)
+const sidebarRef = ref<InstanceType<typeof AppSidebar> | null>(null)
 
 onMounted(() => loadConfigs())
 
@@ -39,6 +40,15 @@ function onNewChat() {
   activeSessionId.value = null
   activeView.value = 'chat'
 }
+
+function onSessionCreated(id: string) {
+  activeSessionId.value = id
+  activeView.value = 'chat'
+  sidebarRef.value?.loadSessions()
+  if (sidebarRef.value) {
+    sidebarRef.value.activeSessionId = id
+  }
+}
 </script>
 
 <template>
@@ -46,6 +56,7 @@ function onNewChat() {
     <TitleBar />
     <div class="flex flex-1 overflow-hidden">
       <AppSidebar
+        ref="sidebarRef"
         @select-session="onSelectSession"
         @new-chat="onNewChat"
         @open-settings="showSettings = true"
@@ -53,7 +64,7 @@ function onNewChat() {
       <div class="flex flex-1 flex-col overflow-hidden">
         <main class="flex-1 overflow-hidden">
           <Transition name="fade" mode="out-in">
-            <ChatView v-if="activeView === 'chat'" key="chat" :session-id="activeSessionId" />
+            <ChatView v-if="activeView === 'chat'" key="chat" :session-id="activeSessionId" @session-created="onSessionCreated" />
             <ApiLogViewer v-else-if="activeView === 'logs'" key="logs" />
           </Transition>
         </main>
