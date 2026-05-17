@@ -30,19 +30,16 @@ pub struct CreateSearchConfigParams {
 fn default_context_window() -> i32 { 128000 }
 fn default_true() -> bool { true }
 
-/// 写入 keyring 成功返回 true; 失败则记录日志并返回 false
-fn try_persist_keyring(service: &str, key: &str) -> bool {
+/// 写入 keyring(最佳努力, 失败仅记录日志)
+fn try_persist_keyring(service: &str, key: &str) {
     match keyring::Entry::new("chatllm", service) {
-        Ok(entry) => match entry.set_password(key) {
-            Ok(_) => true,
-            Err(e) => {
+        Ok(entry) => {
+            if let Err(e) = entry.set_password(key) {
                 eprintln!("(web_search) keyring set_password 失败 service={} err={}", service, e);
-                false
             }
-        },
+        }
         Err(e) => {
             eprintln!("(web_search) keyring 打开失败 service={} err={}", service, e);
-            false
         }
     }
 }
@@ -164,11 +161,9 @@ pub async fn create_search_config(
     let now = chrono::Utc::now().to_rfc3339();
     let enabled_int: i32 = if params.enabled { 1 } else { 0 };
 
-    // 默认明文存 DB; keyring 成功后清空 DB 字段避免落盘明文
-    let mut db_api_key = params.api_key.clone();
     if let (Some(name), Some(key)) = (params.api_key_name.as_deref(), params.api_key.as_deref()) {
-        if !key.is_empty() && try_persist_keyring(name, key) {
-            db_api_key = Some(String::new());
+        if !key.is_empty() {
+            try_persist_keyring(name, key);
         }
     }
 
@@ -180,7 +175,7 @@ pub async fn create_search_config(
     .bind(&params.model)
     .bind(&params.base_url)
     .bind(&params.api_key_name)
-    .bind(&db_api_key)
+    .bind(&params.api_key)
     .bind(params.max_tokens)
     .bind(params.context_window)
     .bind(params.temperature)
@@ -201,7 +196,7 @@ pub async fn create_search_config(
         model: params.model,
         base_url: params.base_url,
         api_key_name: params.api_key_name,
-        api_key: db_api_key,
+        api_key: params.api_key,
         max_tokens: params.max_tokens,
         context_window: params.context_window,
         temperature: params.temperature,
@@ -236,10 +231,9 @@ pub async fn update_search_config(
 ) -> Result<(), String> {
     let enabled_int: i32 = if params.enabled { 1 } else { 0 };
 
-    let mut db_api_key = params.api_key.clone();
     if let (Some(name), Some(key)) = (params.api_key_name.as_deref(), params.api_key.as_deref()) {
-        if !key.is_empty() && try_persist_keyring(name, key) {
-            db_api_key = Some(String::new());
+        if !key.is_empty() {
+            try_persist_keyring(name, key);
         }
     }
 
@@ -250,7 +244,7 @@ pub async fn update_search_config(
     .bind(&params.model)
     .bind(&params.base_url)
     .bind(&params.api_key_name)
-    .bind(&db_api_key)
+    .bind(&params.api_key)
     .bind(params.max_tokens)
     .bind(params.context_window)
     .bind(params.temperature)

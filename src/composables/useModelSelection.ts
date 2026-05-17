@@ -71,6 +71,19 @@ async function loadConfigs() {
   } catch (_) {}
 }
 
+/// 强制重新加载配置列表, 修正被删除或新增后的 ID 失效问题
+async function reloadConfigs() {
+  try {
+    modelConfigs.value = await invoke<ModelConfig[]>('list_model_configs')
+    // 当前选中 ID 已不存在时回退到第一个
+    const ids = modelConfigs.value.map(c => c.id)
+    if (!ids.includes(modelConfigId.value) && modelConfigs.value.length > 0) {
+      modelConfigId.value = modelConfigs.value[0].id
+    }
+    loaded.value = true
+  } catch (_) {}
+}
+
 export function useModelSelection() {
   return {
     modelConfigs,
@@ -84,5 +97,6 @@ export function useModelSelection() {
     localMaxTokens,
     debouncedSave,
     loadConfigs,
+    reloadConfigs,
   }
 }

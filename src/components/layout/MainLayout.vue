@@ -21,6 +21,7 @@ const {
   localMaxTokens,
   debouncedSave,
   loadConfigs,
+  reloadConfigs,
 } = useModelSelection()
 
 const activeSessionId = ref<string | null>(null)
@@ -188,7 +189,7 @@ function onSessionCreated(id: string) {
       </div>
     </div>
     <Transition name="fade">
-      <SettingsDialog v-if="showSettings" @close="showSettings = false" />
+      <SettingsDialog v-if="showSettings" @close="showSettings = false; reloadConfigs()" />
     </Transition>
   </div>
 </template>
